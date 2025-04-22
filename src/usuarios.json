@@ -1,0 +1,17 @@
+[
+  {
+    "usuario": "aluno123",
+    "senha": "1234",
+    "tipo": "aluno"
+  },
+  {
+    "usuario": "prof123",
+    "senha": "abcd",
+    "tipo": "professor"
+  }
+]
+{
+  "usuario": "michelle2025",
+  "senha": "senhaSegura",
+  "tipo": "professor"
+}
