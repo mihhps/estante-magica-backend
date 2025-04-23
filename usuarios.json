@@ -1,12 +1,17 @@
-  [
-    {
-      "usuario": "aluno123",
-      "senha": "1234",
-      "tipo": "aluno"
-    },
-    {
-      "usuario": "prof123",
-      "senha": "abcd",
-      "tipo": "professor"
-    }
-  ]
+[
+  {
+    "usuario": "admin123",
+    "senha": "admin",
+    "tipo": "admin"
+  },
+  {
+    "usuario": "aluno123",
+    "senha": "1234",
+    "tipo": "aluno"
+  },
+  {
+    "usuario": "prof123",
+    "senha": "abcd",
+    "tipo": "professor"
+  }
+]
