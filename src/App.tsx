@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import './index.css'; // usa o CSS já existente
+import React, { useState } from "react";
+import "./App.css";
 
 function App() {
   const [tipo, setTipo] = useState("");
@@ -8,29 +8,34 @@ function App() {
   const [mensagem, setMensagem] = useState("");
 
   const fazerLogin = async () => {
+    setMensagem("🔄 Verificando...");
+
     try {
-      const resposta = await fetch("https://backend-estante-magica.tztdymttds.repl.co/login", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({ usuario, senha, tipo })
-      });
+      const resposta = await fetch(
+        "https://estante-magica-backend.onrender.com/login",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ usuario, senha }),
+        }
+      );
 
       const dados = await resposta.json();
+
       if (resposta.ok) {
-        setMensagem(`✅ Login realizado com sucesso! Bem-vindo(a), ${dados.usuario}`);
+        setMensagem(`✅ Login bem-sucedido! Bem-vindo(a), ${dados.tipo}.`);
       } else {
-        setMensagem(`❌ ${dados.erro}`);
+        setMensagem(`❌ Erro: ${dados.erro}`);
       }
     } catch (erro) {
-      setMensagem("❌ Erro de conexão com o servidor.");
+      setMensagem("🚫 Erro de conexão com o servidor.");
     }
   };
 
   return (
     <div className="container">
       <h1>📚 Estante Mágica</h1>
+
       {!tipo && (
         <>
           <p>Quem está acessando?</p>
@@ -39,14 +44,24 @@ function App() {
         </>
       )}
 
-      {(tipo === "aluno" || tipo === "professor") && (
+      {tipo && (
         <>
-          <h2>Login de {tipo === "aluno" ? "Aluno" : "Professor"}</h2>
-          <input type="text" placeholder="Usuário" value={usuario} onChange={e => setUsuario(e.target.value)} />
-          <input type="password" placeholder="Senha" value={senha} onChange={e => setSenha(e.target.value)} />
+          <h2>Login do {tipo}</h2>
+          <input
+            type="text"
+            placeholder="Usuário"
+            value={usuario}
+            onChange={(e) => setUsuario(e.target.value)}
+          />
+          <input
+            type="password"
+            placeholder="Senha"
+            value={senha}
+            onChange={(e) => setSenha(e.target.value)}
+          />
           <button onClick={fazerLogin}>Entrar</button>
-          <button onClick={() => { setTipo(""); setMensagem(""); }}>🔙 Voltar</button>
-          {mensagem && <p>{mensagem}</p>}
+          <button onClick={() => setTipo("")}>🔙 Voltar</button>
+          <p>{mensagem}</p>
         </>
       )}
     </div>

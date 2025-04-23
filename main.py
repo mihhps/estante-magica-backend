@@ -1,7 +1,9 @@
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 import json
 
 app = Flask(__name__)
+CORS(app)  # permite requisições de outros domínios
 
 @app.route("/")
 def home():
@@ -9,19 +11,18 @@ def home():
 
 @app.route("/login", methods=["POST"])
 def login():
-    dados = request.json
+    dados = request.get_json()
     usuario = dados.get("usuario")
     senha = dados.get("senha")
-    tipo = dados.get("tipo")
 
     with open("usuarios.json", "r", encoding="utf-8") as f:
-        lista = json.load(f)
+        usuarios = json.load(f)
 
-    for u in lista:
-        if u["usuario"] == usuario and u["senha"] == senha and u["tipo"] == tipo:
-            return jsonify({"mensagem": "Login realizado com sucesso!", "usuario": usuario})
+    for u in usuarios:
+        if u["usuario"] == usuario and u["senha"] == senha:
+            return jsonify({"tipo": u["tipo"]})
 
-    return jsonify({"erro": "Credenciais inválidas"}), 401
+    return jsonify({"erro": "Usuário ou senha incorretos"}), 401
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=3000)
