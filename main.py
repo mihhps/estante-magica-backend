@@ -1,7 +1,8 @@
-from flask import Flask, request, jsonify
-from flask_cors import CORS
-import json
-import os
+from flask import request
+import pytesseract
+from PIL import Image
+import io
+import base64
 
 app = Flask(__name__)
 CORS(app)
@@ -74,6 +75,31 @@ def deletar_livro(index):
         salvar_acervo(acervo)
         return jsonify({"mensagem": "Livro removido com sucesso!"})
     return jsonify({"erro": "Livro não encontrado"}), 404
+
+@app.route("/ocr", methods=["POST"])
+def ocr_livro():
+    try:
+        dados = request.get_json()
+        imagem_base64 = dados.get("imagem")
+
+        if not imagem_base64:
+            return jsonify({"erro": "Imagem não fornecida"}), 400
+
+        imagem_bytes = base64.b64decode(imagem_base64)
+        imagem = Image.open(io.BytesIO(imagem_bytes))
+
+        texto = pytesseract.image_to_string(imagem)
+
+        linhas = texto.split("\n")
+        linhas = [linha.strip() for linha in linhas if linha.strip()]
+
+        titulo = linhas[0] if len(linhas) > 0 else "Desconhecido"
+        autor = linhas[1] if len(linhas) > 1 else "Desconhecido"
+
+        return jsonify({"titulo": titulo, "autor": autor})
+
+    except Exception as e:
+        return jsonify({"erro": f"OCR falhou: {str(e)}"}), 500
 
 # === Inicia servidor ===
 if __name__ == "__main__":
