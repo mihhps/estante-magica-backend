@@ -3,149 +3,129 @@ from flask_cors import CORS
 import json
 import csv
 import os
-import pytesseract
-from PIL import Image
 from werkzeug.utils import secure_filename
+from PIL import Image
+import pytesseract
 
 app = Flask(__name__)
 CORS(app)
 
-# Caminhos dos arquivos
-CAMINHO_USUARIOS = "usuarios.json"
-CAMINHO_ACERVO = "acervo.csv"
-CAMINHO_EMPRESTIMOS = "emprestimos.csv"
-UPLOAD_FOLDER = "uploads"
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+USUARIOS_JSON = "usuarios.json"
+ACERVO_CSV = "acervo.csv"
+EMPRESTIMOS_CSV = "emprestimos.csv"
 
-# ==== LOGIN ====
+# ========== FUNÇÕES AUXILIARES ==========
+
+def carregar_usuarios():
+    if not os.path.exists(USUARIOS_JSON):
+        return []
+    with open(USUARIOS_JSON, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+def salvar_usuarios(usuarios):
+    with open(USUARIOS_JSON, "w", encoding="utf-8") as f:
+        json.dump(usuarios, f, ensure_ascii=False, indent=2)
+
+def carregar_acervo():
+    livros = []
+    if os.path.exists(ACERVO_CSV):
+        with open(ACERVO_CSV, newline='', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                livros.append(row)
+    return livros
+
+def salvar_acervo(livros):
+    with open(ACERVO_CSV, "w", newline="", encoding="utf-8") as f:
+        campos = ["id", "titulo", "autor"]
+        writer = csv.DictWriter(f, fieldnames=campos)
+        writer.writeheader()
+        for livro in livros:
+            writer.writerow(livro)
+
+# ========== ROTAS ==========
+
+@app.route("/")
+def inicio():
+    return "✅ Backend da Estante Mágica está online!"
+
 @app.route("/login", methods=["POST"])
 def login():
     dados = request.get_json()
-    usuario = dados.get("usuario")
-    senha = dados.get("senha")
-    try:
-        with open(CAMINHO_USUARIOS, "r", encoding="utf-8") as f:
-            usuarios = json.load(f)
-    except:
-        return jsonify({"erro": "Falha ao ler usuários"}), 500
-
+    usuarios = carregar_usuarios()
     for u in usuarios:
-        if u["usuario"] == usuario and u["senha"] == senha:
+        if u["usuario"] == dados.get("usuario") and u["senha"] == dados.get("senha"):
             return jsonify({"mensagem": "Login bem-sucedido", "tipo": u["tipo"]})
     return jsonify({"erro": "Usuário ou senha incorretos"}), 401
 
-# ==== CADASTRO DE NOVO USUÁRIO ====
 @app.route("/cadastrar", methods=["POST"])
 def cadastrar_usuario():
     novo = request.get_json()
-    try:
-        with open(CAMINHO_USUARIOS, "r", encoding="utf-8") as f:
-            usuarios = json.load(f)
-    except:
-        usuarios = []
-
-    for u in usuarios:
-        if u["usuario"] == novo["usuario"]:
-            return jsonify({"erro": "Usuário já existe"}), 400
-
+    usuarios = carregar_usuarios()
+    if any(u["usuario"] == novo["usuario"] for u in usuarios):
+        return jsonify({"erro": "Usuário já existe"}), 400
     usuarios.append(novo)
-    with open(CAMINHO_USUARIOS, "w", encoding="utf-8") as f:
-        json.dump(usuarios, f, indent=2, ensure_ascii=False)
+    salvar_usuarios(usuarios)
     return jsonify({"mensagem": "Usuário cadastrado com sucesso!"})
 
-# ==== VER ACERVO ====
-@app.route("/acervo", methods=["GET"])
-def ver_acervo():
-    livros = []
-    try:
-        with open(CAMINHO_ACERVO, "r", encoding="utf-8") as f:
-            reader = csv.DictReader(f)
-            livros = list(reader)
-    except FileNotFoundError:
-        pass
-    return jsonify(livros)
-
-# ==== CADASTRAR LIVRO (normal) ====
-@app.route("/acervo", methods=["POST"])
-def cadastrar_livro():
-    novo = request.get_json()
-    campos = ["titulo", "autor"]
-    livro = {campo: novo.get(campo, "") for campo in campos}
-    try:
-        existe = os.path.exists(CAMINHO_ACERVO)
-        with open(CAMINHO_ACERVO, "a", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=campos)
-            if not existe:
-                writer.writeheader()
-            writer.writerow(livro)
+@app.route("/acervo", methods=["GET", "POST", "PUT", "DELETE"])
+def gerenciar_acervo():
+    if request.method == "GET":
+        return jsonify(carregar_acervo())
+    
+    elif request.method == "POST":
+        novo = request.get_json()
+        livros = carregar_acervo()
+        novo["id"] = str(len(livros) + 1)
+        livros.append(novo)
+        salvar_acervo(livros)
         return jsonify({"mensagem": "Livro cadastrado com sucesso!"})
-    except:
-        return jsonify({"erro": "Erro ao salvar livro"}), 500
 
-# ==== CADASTRAR LIVRO COM OCR ====
-@app.route("/acervo/ocr", methods=["POST"])
-def cadastrar_livro_com_ocr():
-    if 'imagem' not in request.files:
-        return jsonify({"erro": "Imagem não enviada"}), 400
+    elif request.method == "PUT":
+        dados = request.get_json()
+        livros = carregar_acervo()
+        for livro in livros:
+            if livro["id"] == dados["id"]:
+                livro["titulo"] = dados["titulo"]
+                livro["autor"] = dados["autor"]
+        salvar_acervo(livros)
+        return jsonify({"mensagem": "Livro atualizado com sucesso!"})
 
-    imagem = request.files['imagem']
+    elif request.method == "DELETE":
+        id_livro = request.args.get("id")
+        livros = carregar_acervo()
+        livros = [livro for livro in livros if livro["id"] != id_livro]
+        salvar_acervo(livros)
+        return jsonify({"mensagem": "Livro deletado com sucesso!"})
+
+@app.route("/ocr", methods=["POST"])
+def extrair_dados_ocr():
+    if "imagem" not in request.files:
+        return jsonify({"erro": "Imagem não enviada."}), 400
+    imagem = request.files["imagem"]
     nome_arquivo = secure_filename(imagem.filename)
-    caminho = os.path.join(UPLOAD_FOLDER, nome_arquivo)
-    imagem.save(caminho)
-
+    imagem.save(nome_arquivo)
+    
     try:
-        texto = pytesseract.image_to_string(Image.open(caminho))
-        linhas = texto.split("\n")
-        titulo = linhas[0] if linhas else ""
-        autor = linhas[1] if len(linhas) > 1 else ""
-
-        return cadastrar_livro_ocr_backend(titulo.strip(), autor.strip())
+        texto = pytesseract.image_to_string(Image.open(nome_arquivo), lang='por')
+        linhas = texto.strip().split("\n")
+        titulo = linhas[0] if linhas else "Título não identificado"
+        autor = linhas[1] if len(linhas) > 1 else "Autor não identificado"
+        os.remove(nome_arquivo)
+        return jsonify({"titulo": titulo, "autor": autor})
     except Exception as e:
-        return jsonify({"erro": f"Erro no OCR: {str(e)}"}), 500
+        return jsonify({"erro": f"OCR falhou: {str(e)}"}), 500
 
-def cadastrar_livro_ocr_backend(titulo, autor):
-    try:
-        existe = os.path.exists(CAMINHO_ACERVO)
-        with open(CAMINHO_ACERVO, "a", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=["titulo", "autor"])
-            if not existe:
-                writer.writeheader()
-            writer.writerow({"titulo": titulo, "autor": autor})
-        return jsonify({"mensagem": "Livro cadastrado por OCR com sucesso!"})
-    except:
-        return jsonify({"erro": "Erro ao salvar livro OCR"}), 500
-
-# ==== REGISTRAR EMPRÉSTIMO ====
-@app.route("/emprestimos", methods=["POST"])
-def registrar_emprestimo():
-    dados = request.get_json()
-    campos = ["usuario", "titulo", "data"]
-    emprestimo = {campo: dados.get(campo, "") for campo in campos}
-    try:
-        existe = os.path.exists(CAMINHO_EMPRESTIMOS)
-        with open(CAMINHO_EMPRESTIMOS, "a", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=campos)
-            if not existe:
-                writer.writeheader()
-            writer.writerow(emprestimo)
-        return jsonify({"mensagem": "Empréstimo registrado!"})
-    except:
-        return jsonify({"erro": "Erro ao registrar empréstimo"}), 500
-
-# ==== VER EMPRÉSTIMOS ====
 @app.route("/emprestimos", methods=["GET"])
-def ver_emprestimos():
-    try:
-        with open(CAMINHO_EMPRESTIMOS, "r", encoding="utf-8") as f:
+def listar_emprestimos():
+    emprestimos = []
+    if os.path.exists(EMPRESTIMOS_CSV):
+        with open(EMPRESTIMOS_CSV, newline='', encoding='utf-8') as f:
             reader = csv.DictReader(f)
-            return jsonify(list(reader))
-    except:
-        return jsonify([])
+            for row in reader:
+                emprestimos.append(row)
+    return jsonify(emprestimos)
 
-# ==== SAUDACAO ====
-@app.route("/")
-def inicio():
-    return "✅ Backend da Estante Mágica está funcionando!"
-
+# ========== EXECUÇÃO LOCAL ==========
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=3000)
