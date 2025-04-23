@@ -1,131 +1,124 @@
+
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import json
 import csv
-import os
-from werkzeug.utils import secure_filename
-from PIL import Image
 import pytesseract
+from PIL import Image
+import base64
+import io
+import os
 
 app = Flask(__name__)
 CORS(app)
 
-USUARIOS_JSON = "usuarios.json"
-ACERVO_CSV = "acervo.csv"
-EMPRESTIMOS_CSV = "emprestimos.csv"
+# Arquivos principais
+ARQUIVO_USUARIOS = "usuarios.json"
+ARQUIVO_ACERVO = "acervo.csv"
 
-# ========== FUNÇÕES AUXILIARES ==========
+# === Funções auxiliares ===
 
 def carregar_usuarios():
-    if not os.path.exists(USUARIOS_JSON):
+    try:
+        with open(ARQUIVO_USUARIOS, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except:
         return []
-    with open(USUARIOS_JSON, "r", encoding="utf-8") as f:
-        return json.load(f)
 
-def salvar_usuarios(usuarios):
-    with open(USUARIOS_JSON, "w", encoding="utf-8") as f:
-        json.dump(usuarios, f, ensure_ascii=False, indent=2)
+def salvar_livro(titulo, autor, genero):
+    novo = [titulo, autor, genero]
+    existe = False
+
+    if not os.path.exists(ARQUIVO_ACERVO):
+        with open(ARQUIVO_ACERVO, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(["Título", "Autor", "Gênero"])
+
+    with open(ARQUIVO_ACERVO, "r", encoding="utf-8") as f:
+        reader = csv.reader(f)
+        for linha in reader:
+            if linha == novo:
+                existe = True
+                break
+
+    if not existe:
+        with open(ARQUIVO_ACERVO, "a", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(novo)
+        return True
+    return False
 
 def carregar_acervo():
     livros = []
-    if os.path.exists(ACERVO_CSV):
-        with open(ACERVO_CSV, newline='', encoding='utf-8') as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                livros.append(row)
+    if os.path.exists(ARQUIVO_ACERVO):
+        with open(ARQUIVO_ACERVO, "r", encoding="utf-8") as f:
+            reader = csv.reader(f)
+            next(reader)
+            for linha in reader:
+                if len(linha) == 3:
+                    livros.append({"titulo": linha[0], "autor": linha[1], "genero": linha[2]})
     return livros
 
-def salvar_acervo(livros):
-    with open(ACERVO_CSV, "w", newline="", encoding="utf-8") as f:
-        campos = ["id", "titulo", "autor"]
-        writer = csv.DictWriter(f, fieldnames=campos)
-        writer.writeheader()
-        for livro in livros:
-            writer.writerow(livro)
-
-# ========== ROTAS ==========
+# === Rotas ===
 
 @app.route("/")
 def inicio():
-    return "✅ Backend da Estante Mágica está online!"
+    return "✅ Backend da Estante Mágica está funcionando!"
 
 @app.route("/login", methods=["POST"])
 def login():
     dados = request.get_json()
+    usuario = dados.get("usuario")
+    senha = dados.get("senha")
+
     usuarios = carregar_usuarios()
     for u in usuarios:
-        if u["usuario"] == dados.get("usuario") and u["senha"] == dados.get("senha"):
+        if u["usuario"] == usuario and u["senha"] == senha:
             return jsonify({"mensagem": "Login bem-sucedido", "tipo": u["tipo"]})
     return jsonify({"erro": "Usuário ou senha incorretos"}), 401
 
-@app.route("/cadastrar", methods=["POST"])
-def cadastrar_usuario():
-    novo = request.get_json()
-    usuarios = carregar_usuarios()
-    if any(u["usuario"] == novo["usuario"] for u in usuarios):
-        return jsonify({"erro": "Usuário já existe"}), 400
-    usuarios.append(novo)
-    salvar_usuarios(usuarios)
-    return jsonify({"mensagem": "Usuário cadastrado com sucesso!"})
+@app.route("/livros", methods=["GET"])
+def listar_livros():
+    return jsonify(carregar_acervo())
 
-@app.route("/acervo", methods=["GET", "POST", "PUT", "DELETE"])
-def gerenciar_acervo():
-    if request.method == "GET":
-        return jsonify(carregar_acervo())
-    
-    elif request.method == "POST":
-        novo = request.get_json()
-        livros = carregar_acervo()
-        novo["id"] = str(len(livros) + 1)
-        livros.append(novo)
-        salvar_acervo(livros)
+@app.route("/livros", methods=["POST"])
+def cadastrar_livro():
+    dados = request.json if request.is_json else request.form
+    titulo = dados.get("titulo", "").strip()
+    autor = dados.get("autor", "").strip()
+    genero = dados.get("genero", "").strip()
+
+    if not titulo or not autor or not genero:
+        return jsonify({"erro": "Todos os campos são obrigatórios."}), 400
+
+    if salvar_livro(titulo, autor, genero):
         return jsonify({"mensagem": "Livro cadastrado com sucesso!"})
+    else:
+        return jsonify({"erro": "Este livro já está cadastrado."}), 409
 
-    elif request.method == "PUT":
-        dados = request.get_json()
-        livros = carregar_acervo()
-        for livro in livros:
-            if livro["id"] == dados["id"]:
-                livro["titulo"] = dados["titulo"]
-                livro["autor"] = dados["autor"]
-        salvar_acervo(livros)
-        return jsonify({"mensagem": "Livro atualizado com sucesso!"})
+@app.route("/livros/ocr", methods=["POST"])
+def cadastrar_livro_ocr():
+    imagem_b64 = request.json.get("imagem_base64")
+    if not imagem_b64:
+        return jsonify({"erro": "Imagem não recebida."}), 400
 
-    elif request.method == "DELETE":
-        id_livro = request.args.get("id")
-        livros = carregar_acervo()
-        livros = [livro for livro in livros if livro["id"] != id_livro]
-        salvar_acervo(livros)
-        return jsonify({"mensagem": "Livro deletado com sucesso!"})
-
-@app.route("/ocr", methods=["POST"])
-def extrair_dados_ocr():
-    if "imagem" not in request.files:
-        return jsonify({"erro": "Imagem não enviada."}), 400
-    imagem = request.files["imagem"]
-    nome_arquivo = secure_filename(imagem.filename)
-    imagem.save(nome_arquivo)
-    
     try:
-        texto = pytesseract.image_to_string(Image.open(nome_arquivo), lang='por')
-        linhas = texto.strip().split("\n")
-        titulo = linhas[0] if linhas else "Título não identificado"
-        autor = linhas[1] if len(linhas) > 1 else "Autor não identificado"
-        os.remove(nome_arquivo)
-        return jsonify({"titulo": titulo, "autor": autor})
+        imagem_bytes = base64.b64decode(imagem_b64.split(",")[-1])
+        imagem = Image.open(io.BytesIO(imagem_bytes))
+        texto = pytesseract.image_to_string(imagem)
+
+        linhas = texto.split("\n")
+        titulo = linhas[0].strip() if len(linhas) > 0 else "Título Desconhecido"
+        autor = linhas[1].strip() if len(linhas) > 1 else "Autor Desconhecido"
+        genero = "Literatura"
+
+        if salvar_livro(titulo, autor, genero):
+            return jsonify({"mensagem": "Livro cadastrado via OCR!", "titulo": titulo, "autor": autor})
+        else:
+            return jsonify({"erro": "Este livro já está no acervo."}), 409
     except Exception as e:
-        return jsonify({"erro": f"OCR falhou: {str(e)}"}), 500
+        return jsonify({"erro": f"Erro ao processar a imagem: {str(e)}"}), 500
 
-@app.route("/emprestimos", methods=["GET"])
-def listar_emprestimos():
-    emprestimos = []
-    if os.path.exists(EMPRESTIMOS_CSV):
-        with open(EMPRESTIMOS_CSV, newline='', encoding='utf-8') as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                emprestimos.append(row)
-    return jsonify(emprestimos)
-
-# ========== EXECUÇÃO LOCAL ==========
+# === Execução ===
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=3000)
