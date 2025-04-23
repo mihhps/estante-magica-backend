@@ -1,62 +1,34 @@
-from flask import Flask, request, jsonify
-from flask_cors import CORS
-import json
-import os
-
-app = Flask(__name__)
-CORS(app)  # Permite requisições de qualquer origem (React incluso)
-
-# Caminho do arquivo
-CAMINHO_ARQUIVO = os.path.join(os.path.dirname(__file__), "usuarios.json")
-
-# Carrega os usuários do arquivo JSON
-def carregar_usuarios():
+@app.route("/acervo", methods=["GET"])
+def listar_livros():
     try:
-        with open(CAMINHO_ARQUIVO, "r", encoding="utf-8") as f:
-            return json.load(f)
+        with open("acervo.csv", "r", encoding="utf-8") as f:
+            linhas = f.readlines()[1:]  # ignora cabeçalho
+            livros = [linha.strip().split(",") for linha in linhas]
+            return jsonify([
+                {"titulo": l[0], "autor": l[1], "genero": l[2]} for l in livros if len(l) == 3
+            ])
     except FileNotFoundError:
-        return []
+        return jsonify([])
 
-# Salva os usuários no JSON
-def salvar_usuarios(lista):
-    with open(CAMINHO_ARQUIVO, "w", encoding="utf-8") as f:
-        json.dump(lista, f, indent=2, ensure_ascii=False)
-
-@app.route("/")
-def inicio():
-    return "✅ Backend da Estante Mágica está funcionando!"
-
-@app.route("/login", methods=["POST"])
-def login():
+@app.route("/acervo", methods=["POST"])
+def adicionar_livro():
     dados = request.get_json()
-    usuario = dados.get("usuario")
-    senha = dados.get("senha")
+    try:
+        with open("acervo.csv", "a", encoding="utf-8") as f:
+            f.write(f"{dados['titulo']},{dados['autor']},{dados['genero']}\n")
+        return jsonify({"mensagem": "Livro adicionado com sucesso!"})
+    except Exception as e:
+        return jsonify({"erro": str(e)}), 500
 
-    usuarios = carregar_usuarios()
-    for u in usuarios:
-        if u["usuario"] == usuario and u["senha"] == senha:
-            return jsonify({"mensagem": "Login bem-sucedido", "tipo": u["tipo"]})
-    return jsonify({"erro": "Usuário ou senha incorretos"}), 401
-
-@app.route("/cadastrar", methods=["POST"])
-def cadastrar():
-    dados = request.get_json()
-    usuario = dados.get("usuario")
-    senha = dados.get("senha")
-    tipo = dados.get("tipo")
-
-    if not usuario or not senha or not tipo:
-        return jsonify({"erro": "Todos os campos são obrigatórios."}), 400
-
-    usuarios = carregar_usuarios()
-    if any(u["usuario"] == usuario for u in usuarios):
-        return jsonify({"erro": "Usuário já existe."}), 409
-
-    novo = {"usuario": usuario, "senha": senha, "tipo": tipo}
-    usuarios.append(novo)
-    salvar_usuarios(usuarios)
-
-    return jsonify({"mensagem": "Usuário cadastrado com sucesso!"}), 201
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=3000)
+@app.route("/acervo/<titulo>", methods=["DELETE"])
+def deletar_livro(titulo):
+    try:
+        with open("acervo.csv", "r", encoding="utf-8") as f:
+            linhas = f.readlines()
+        with open("acervo.csv", "w", encoding="utf-8") as f:
+            for linha in linhas:
+                if not linha.startswith(titulo + ","):
+                    f.write(linha)
+        return jsonify({"mensagem": "Livro removido com sucesso!"})
+    except Exception as e:
+        return jsonify({"erro": str(e)}), 500
